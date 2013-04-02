@@ -216,8 +216,7 @@ reply(Msg) ->
 %% @doc
 %%   Called by any process will send a reply to the one that sent the
 %%   request to the fsm, the From argument is the result from a call
-%%   to from/1 inside a state function, handle_event/3 or handle_msg/2
-%%   callback function.
+%%   to from/1 inside a state function or handle_event/3 callback function.
 %% @end
 %%--------------------------------------------------------------------
 -spec reply(from(), _) -> ok.
@@ -232,7 +231,7 @@ reply(From = #from{type = call, sender = Sender}, Msg) ->
 %%--------------------------------------------------------------------
 %% Function: from() -> From.
 %% @doc
-%%   Called inside a state function, handle_req/2 or handle_msg/2 callback
+%%   Called inside a state function or handle_req/3  callback
 %%   function it will provide an opaque data data enables a reply to the
 %%   call or event outside the scope of the callback function.
 %% @end
@@ -380,99 +379,74 @@ loop(State = #state{parent = Parent}) ->
             sys:handle_system_msg(Req, From, Parent, ?MODULE, [], State);
         Msg = {'EXIT', Parent, Reason} ->
             terminate(Reason, Msg, State);
-        Msg ->
-            handle_msg(Msg, State)
+        Event  ->
+            handle_msg(Event, State)
     end.
 
-handle_msg(Item = #'$jhn_fsm_msg'{from = From, payload = Msg}, State) ->
+handle_msg(Event = #'$jhn_fsm_msg'{from = From, payload = Msg}, State) ->
+    #state{mod = Mod, state_name = StateName, data = Data} = State,
     write(#msg_store{from = From, payload = Msg}),
-    #state{mod = Mod,
-           state_name = StateName,
-           data = Data
-          } = State,
-    case catch Mod:StateName(Msg, Data) of
-        {ok, NewStateName, NewData} ->
-            write(clear),
-            NewState = State#state{state_name = NewStateName,
-                                   data = NewData,
-                                   hibernated = false},
-            next_loop(StateName, NewState);
-        {hibernate, NewStateName, NewData} ->
-            write(clear),
-            NewState = State#state{state_name = NewStateName,
-                                   data = NewData,
-                                   hibernated = true},
-            next_loop(StateName, NewState);
-        deferred ->
-            write(clear),
-            next_loop(StateName, insert(Item, State));
-        {stop, Reason} ->
-            terminate(Reason, Msg, State);
-%%        {'EXIT', {function_clause, [{Mod, StateName, _} | _]}} ->
-        {'EXIT', {function_clause, [{Mod, StateName, _, _} | _]}} ->
-            case catch Mod:handle_event(Msg, StateName, Data) of
-                {ok, NewStateName, NewData} ->
-                    write(clear),
-                    NewState = State#state{state_name = NewStateName,
-                                           data = NewData,
-                                           hibernated = false},
-                    next_loop(StateName, NewState);
-                {hibernate, NewStateName, NewData} ->
-                    write(clear),
-                    NewState = State#state{state_name = NewStateName,
-                                           data = NewData,
-                                           hibernated = true},
-                    next_loop(StateName, NewState);
-                deferred ->
-                    write(clear),
-                    next_loop(StateName, insert(Item, State));
-                {stop, Reason} ->
-                    terminate(Reason, Msg, State);
-%%                {'EXIT', {function_clause, [{Mod, handle_event,[_,_,_]}| _]}} ->
-                {'EXIT', {function_clause, [{Mod, handle_event,[_,_,_], _}| _]}} ->
-                    unexpected(event, Mod, Msg),
-                    next_loop(StateName, State);
-%%                {'EXIT', {undef, [{Mod, handle_event, [_, _, _]}| _]}} ->
-                {'EXIT', {undef, [{Mod, handle_event, [_, _, _], _}| _]}} ->
-                    unexpected(event, Mod, Msg),
-                    next_loop(StateName, State);
-                Other ->
-                    terminate({bad_return_value, Other}, Msg, State)
-            end;
-        Other ->
-            terminate({bad_return_value, Other}, Msg, State)
-    end;
-handle_msg(Info, State) ->
-    #state{mod = Mod,
-           state_name = StateName,
-           data = Data
-          } = State,
-    case catch Mod:handle_msg(Info, StateName, Data) of
-        {ok, NewStateName, NewData} ->
-            NewState = State#state{state_name = NewStateName,
-                                   data = NewData,
-                                   hibernated = false},
-            next_loop(StateName, NewState);
-        {hibernate, NewStateName, NewData} ->
-            NewState = State#state{state_name = NewStateName,
-                                   data = NewData,
-                                   hibernated = true},
-            next_loop(StateName, NewState);
-        deferred ->
-            next_loop(StateName, insert(Info, State));
-        {stop, Reason} ->
-            terminate(Reason, Info, State);
-%%        {'EXIT', {function_clause, [{Mod, handle_msg, [_, _, _]}| _]}} ->
-        {'EXIT', {function_clause, [{Mod, handle_msg, [_, _, _], _}| _]}} ->
-            unexpected(message, Mod, Info),
-            next_loop(StateName, State);
-%%        {'EXIT', {undef, [{Mod, handle_msg, [_, _, _]}| _]}} ->
-        {'EXIT', {undef, [{Mod, handle_msg, [_, _, _], _}| _]}} ->
-            unexpected(message, Mod, Info),
-            next_loop(StateName, State);
-        Other ->
-            terminate({bad_return_value, Other}, Info, State)
-    end.
+    Return = (catch Mod:StateName(Msg, Data)),
+    write(clear),
+    return(Return, StateName, Mod, Event, State);
+handle_msg(Msg, State) ->
+    #state{mod = Mod, state_name = StateName, data = Data} = State,
+    Return = (catch Mod:handle_msg(Msg, StateName, Data)),
+    return(Return, handle_msg, Mod, Msg, State).
+
+return({ok, NewStateName, NewData}, _, _, _, State) ->
+    NewState = State#state{state_name = NewStateName,
+                           data = NewData,
+                           hibernated = false},
+    next_loop(State#state.state_name, NewState);
+return({hibernate, NewStateName, NewData}, _, _, _, State) ->
+    NewState = State#state{state_name = NewStateName,
+                           data = NewData,
+                           hibernated = true},
+    next_loop(State#state.state_name, NewState);
+return(deferred, _, _, Event, State = #state{state_name = StateName}) ->
+    next_loop(StateName, insert(Event, State));
+return({stop, Reason}, _, _, #'$jhn_fsm_msg'{payload = Msg}, State) ->
+    terminate(Reason, Msg, State);
+return({stop, Reason}, _, _, Msg, State) ->
+    terminate(Reason, Msg, State);
+%% Exceptions without file name and line number.
+return({'EXIT',{function_clause,[{M,F,[_,_,_]}|_]}},F,M,Event,State)
+  when F == handle_event; F == handle_msg ->
+    unexpected(event, M, Event),
+    next_loop(State#state.state_name, State);
+return({'EXIT',{function_clause,[{M,F,[_,_,_],_}|_]}},F,M,Event,State)
+  when F == handle_event; F == handle_msg ->
+    unexpected(event, M, Event),
+    next_loop(State#state.state_name, State);
+%% Exceptions without file name and line number.
+return({'EXIT',{undef,[{M,N,[_,_,_]}|_]}},N,M,Event,State)
+  when N == handle_event; N == handle_msg ->
+    unexpected(event, M, Event),
+    next_loop(State#state.state_name, State);
+return({'EXIT',{undef,[{M,N,[_,_,_],_}|_]}},N,M,Event,State)
+  when N == handle_event; N == handle_msg ->
+    unexpected(event, M, Event),
+    next_loop(State#state.state_name, State);
+%% Exceptions without file name and line number.
+return({'EXIT',{function_clause,[{M,N,_}|_]}},N,M,Event,State) ->
+    #state{state_name = StateName, data = Data} = State,
+    #'$jhn_fsm_msg'{from = From, payload = Msg} = Event,
+    write(#msg_store{from = From, payload = Msg}),
+    Return = (catch M:handle_event(Msg, StateName, Data)),
+    write(clear),
+    return(Return, handle_event, M, Event, State);
+return({'EXIT',{function_clause,[{M,N,_, _}|_]}},N,M,Event,State) ->
+    #state{state_name = StateName, data = Data} = State,
+    #'$jhn_fsm_msg'{from = From, payload = Msg} = Event,
+    write(#msg_store{from = From, payload = Msg}),
+    Return = (catch M:handle_event(Msg, StateName, Data)),
+    write(clear),
+    return(Return, handle_event, M, Event, State);
+return(Other, _, _, #'$jhn_fsm_msg'{payload = Msg}, State) ->
+    terminate({bad_return_value, Other}, Msg, State);
+return(Other, _, _, Msg, State) ->
+    terminate({bad_return_value, Other}, Msg, State).
 
 %%====================================================================
 %% Internal functions
@@ -660,9 +634,13 @@ write(Message = #msg_store{}) -> erlang:put('$jhn_msg_store', Message).
 
 
 %%--------------------------------------------------------------------
+unexpected(Type, Mod, #'$jhn_fsm_msg'{payload = Msg}) ->
+    unexpected(Type, Mod, Msg);
 unexpected(Type, Mod, Msg) ->
     error_logger:format("JHN FSM ~p(~p) received unexpected ~p: ~p~n",
                         [Mod, self(), Type, Msg]).
+
+
 
 %%--------------------------------------------------------------------
 insert(Elt, State  = #state{handling_deferred = true}) ->

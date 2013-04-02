@@ -398,7 +398,7 @@ loop(State = #state{parent = Parent, mod = Mod, data = Data}) ->
         Msg = {'EXIT', Parent, Reason} ->
             terminate(Reason, Msg, State);
         #'$jhn_server_msg'{from = From, payload = Msg} ->
-            write(#msg_store{from = From,payload = Msg}),
+            write(#msg_store{from = From, payload = Msg}),
             Return = (catch Mod:handle_req(Msg, Data)),
             write(clear),
             return(Return, handle_req, Mod, Msg, State);
