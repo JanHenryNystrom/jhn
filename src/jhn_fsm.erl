@@ -410,33 +410,15 @@ return({stop, Reason}, _, _, #'$jhn_fsm_msg'{payload = Msg}, State) ->
     terminate(Reason, Msg, State);
 return({stop, Reason}, _, _, Msg, State) ->
     terminate(Reason, Msg, State);
-%% Exceptions without file name and line number.
-return({'EXIT',{function_clause,[{M,F,[_,_,_]}|_]}},F,M,Event,State)
+return({'EXIT', {function_clause,[{M,F,[_,_,_],_}|_]}}, F, M, Event, State)
   when F == handle_event; F == handle_msg ->
     unexpected(event, M, Event),
     next_loop(State#state.state_name, State);
-return({'EXIT',{function_clause,[{M,F,[_,_,_],_}|_]}},F,M,Event,State)
-  when F == handle_event; F == handle_msg ->
-    unexpected(event, M, Event),
-    next_loop(State#state.state_name, State);
-%% Exceptions without file name and line number.
-return({'EXIT',{undef,[{M,N,[_,_,_]}|_]}},N,M,Event,State)
+return({'EXIT', {undef,[{M,N,[_,_,_],_}|_]}},N,M,Event,State)
   when N == handle_event; N == handle_msg ->
     unexpected(event, M, Event),
     next_loop(State#state.state_name, State);
-return({'EXIT',{undef,[{M,N,[_,_,_],_}|_]}},N,M,Event,State)
-  when N == handle_event; N == handle_msg ->
-    unexpected(event, M, Event),
-    next_loop(State#state.state_name, State);
-%% Exceptions without file name and line number.
-return({'EXIT',{function_clause,[{M,N,_}|_]}},N,M,Event,State) ->
-    #state{state_name = StateName, data = Data} = State,
-    #'$jhn_fsm_msg'{from = From, payload = Msg} = Event,
-    write(#msg_store{from = From, payload = Msg}),
-    Return = (catch M:handle_event(Msg, StateName, Data)),
-    write(clear),
-    return(Return, handle_event, M, Event, State);
-return({'EXIT',{function_clause,[{M,N,_, _}|_]}},N,M,Event,State) ->
+return({'EXIT', {function_clause,[{M,N,_, _}|_]}}, N, M, Event, State) ->
     #state{state_name = StateName, data = Data} = State,
     #'$jhn_fsm_msg'{from = From, payload = Msg} = Event,
     write(#msg_store{from = From, payload = Msg}),
@@ -639,8 +621,6 @@ unexpected(Type, Mod, #'$jhn_fsm_msg'{payload = Msg}) ->
 unexpected(Type, Mod, Msg) ->
     error_logger:format("JHN FSM ~p(~p) received unexpected ~p: ~p~n",
                         [Mod, self(), Type, Msg]).
-
-
 
 %%--------------------------------------------------------------------
 insert(Elt, State  = #state{handling_deferred = true}) ->

@@ -413,15 +413,7 @@ return({hibernate, NewData}, _, _, _, State) ->
     next_loop(NewState);
 return({stop, Reason}, _, _, Msg, State) ->
     terminate(Reason, Msg, State);
-%% Exceptions without file name and line number.
-return({'EXIT',{function_clause,[{Mod,Type,[_,_]}|_]}},Type, Mod, Msg, State) ->
-    unexpected(Type, State, Msg),
-    next_loop(State);
 return({'EXIT',{function_clause,[{Mod,Type,[_,_],_}|_]}},Type,Mod, Msg,State) ->
-    unexpected(Type, State, Msg),
-    next_loop(State);
-%% Exceptions without file name and line number.
-return({'EXIT', {undef, [{Mod, Type, [_, _]} | _]}}, Type, Mod, Msg, State) ->
     unexpected(Type, State, Msg),
     next_loop(State);
 return({'EXIT', {undef, [{Mod, Type, [_, _], _} |_]}}, Type, Mod, Msg, State) ->
