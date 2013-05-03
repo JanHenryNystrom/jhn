@@ -111,10 +111,10 @@ start(Mod) -> start(Mod, []).
 %% @doc
 %%   Starts a jhn_fsm with options.
 %%   Options are:
-%%     {link, Boolean} -> if the server is linked to the parent, default true
-%%     {timeout, infinity | Integer} -> Time in ms for the server to start and
+%%     {link, Boolean} -> if the fsm is linked to the parent, default true
+%%     {timeout, infinity | Integer} -> Time in ms for the fsm to start and
 %%         initialise, after that an exception is generated, default 5000.
-%%     {name, Atom} -> name that the server is registered under.
+%%     {name, Atom} -> name that the fsm is registered under.
 %%     {arg, Term} -> argument provided to the init/1 callback function,
 %%         default is 'no_arg'.
 %% @end

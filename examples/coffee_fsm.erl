@@ -16,9 +16,9 @@
 
 %%%-------------------------------------------------------------------
 %%% @doc
-%%%   An example coffee FSM using the jhn_server behaviour.
+%%%   An example coffee FSM using the jhn_fsm behaviour.
 %%%
-%%%   Implements the frequency server from "ERLANG Programming" by
+%%%   Implements the coffee FSM from "ERLANG Programming" by
 %%%   Francesco Cesarini and Simon Thompson ISBN: 0596518188
 %%% @end
 %%%
@@ -78,7 +78,7 @@ stop() -> jhn_fsm:call(?MODULE, stop).
 %%====================================================================
 
 %%====================================================================
-%% jhn_server callbacks
+%% jhn_fsm callbacks
 %%====================================================================
 
 %%--------------------------------------------------------------------
@@ -133,7 +133,7 @@ remove_cup() -> jhn_fsm:event(?MODULE, remove_cup).
 
 
 %%====================================================================
-%% jhn_server callbacks
+%% jhn_fsm callbacks
 %%====================================================================
 
 %%--------------------------------------------------------------------
@@ -147,7 +147,7 @@ init(no_arg) ->
     {ok, selection, #state{}}.
 
 %%====================================================================
-%% jhn_server state callbacks
+%% jhn_fsm state callbacks
 %%====================================================================
 
 %%--------------------------------------------------------------------
