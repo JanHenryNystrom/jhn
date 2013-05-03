@@ -28,7 +28,7 @@
 %% API
 -export([start/1, start/2,
          call/2, call/3,
-         event/2,
+         event/2, delayed_event/2, cancel/1,
          reply/1, reply/2, from/0
         ]).
 
@@ -137,7 +137,7 @@ start(Mod, Options) ->
 %%--------------------------------------------------------------------
 %% Function: event(FSM, Message) -> ok.
 %% @doc
-%%   A event is made to the FSM, allways retuns ok.
+%%   An event is sent to the FSM, always retuns ok.
 %% @end
 %%--------------------------------------------------------------------
 -spec event(fsm_ref(), _) -> ok.
@@ -148,6 +148,31 @@ event(FSM = {Name, Node}, Msg) when is_atom(Name), is_atom(Node) ->
     do_event(FSM, Msg);
 event(FSM, Msg) ->
     erlang:error(badarg, [FSM, Msg]).
+
+%%--------------------------------------------------------------------
+%% Function: delayed_event(Delay, Message) -> TimerRef.
+%% @doc
+%%   An event is sent to the calling FSM after Delay ms, always returns
+%%   a timer reference that can be canceled using cancel/1.
+%% @end
+%%--------------------------------------------------------------------
+-spec delayed_event(non_neg_integer(), _) -> reference().
+%%--------------------------------------------------------------------
+delayed_event(Time, Msg) when is_integer(Time), Time >= 0 ->
+    erlang:send_after(Time, self(), ?EVENT(Msg));
+delayed_event(Time, Msg) ->
+    erlang:error(badarg, [Time, Msg]).
+
+%%--------------------------------------------------------------------
+%% Function: cancel(TimerRef) -> Time | false.
+%% @doc
+%%   A timer a timer started using delayed_event/2, returns time
+%%   remaining or false.
+%% @end
+%%--------------------------------------------------------------------
+-spec cancel(reference()) -> non_neg_integer() | false.
+%%--------------------------------------------------------------------
+cancel(Ref) -> erlang:cancel_timer(Ref).
 
 %%--------------------------------------------------------------------
 %% Function: call(FSM, Message) -> Term.
