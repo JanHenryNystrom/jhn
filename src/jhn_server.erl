@@ -38,9 +38,6 @@
          system_code_change/4,
          format_status/2]).
 
-%% Behaviour callbacks
--export([behaviour_info/1]).
-
 %% Internal exports
 -export([init/5, loop/1]).
 
@@ -83,11 +80,29 @@
 %% Types
 -type opt() :: {atom(), _}.
 -type opts() :: [opt()].
+
 -type server_ref() :: atom() | {atom(), node()} | pid().
+
 -opaque from() :: #from{}.
 
+
+-type init_return(State) :: ignore | return(State).
+-type return(State) :: {ok, State} | {hibernate, State} | {stop, State}.
+
+
 %% Exported Types
--export_type([from/0]).
+-export_type([from/0, init_return/1, return/1]).
+
+%%====================================================================
+%% Behaviour callbacks
+%%====================================================================
+
+-callback init(State) -> init_return(State).
+
+-callback handle_req(_, State) -> return(State).
+-callback handle_msg(_, State) -> return(State).
+-callback terminate(_, _) -> _.
+-callback code_change(_, State, _) ->  return(State).
 
 %%====================================================================
 %% API
@@ -134,7 +149,7 @@ start(Mod, Options) ->
 %%--------------------------------------------------------------------
 %% Function: cast(Server, Message) -> ok.
 %% @doc
-%%   A cast is made to the server, allways retuns ok.
+%%   A cast is made to the server, allways returns ok.
 %% @end
 %%--------------------------------------------------------------------
 -spec cast(server_ref(), _) -> ok.
@@ -329,26 +344,6 @@ format_status(Opt, StatusData) ->
         end,
     [{header, Header},
      {data, [{"Status", SysState}, {"Parent", Parent}]} | Specfic].
-
-%%====================================================================
-%% Behaviour callbacks
-%%====================================================================
-
-%%--------------------------------------------------------------------
-%% Function: behaviour_info(callbacks) -> Callbacks.
-%% @private
-%%--------------------------------------------------------------------
--spec behaviour_info(atom()) -> undefined | [{atom(), arity()}].
-%%--------------------------------------------------------------------
-behaviour_info(callbacks) ->
-    [{init, 1},
-     {handle_req, 2},
-     {handle_msg, 2},
-     {terminate, 2},
-     {code_change, 3}
-    ];
-behaviour_info(_) ->
-    undefined.
 
 %%====================================================================
 %% Internal exports

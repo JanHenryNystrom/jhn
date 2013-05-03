@@ -104,14 +104,15 @@ deallocate(Freq) -> jhn_server:cast(?MODULE, {deallocate, Freq}).
 %%--------------------------------------------------------------------
 %% @private
 %%--------------------------------------------------------------------
--spec init(no_arg) -> {ok, #state{}}.
+-spec init(no_arg) -> jhn_server:init_return(#state{}).
 %%--------------------------------------------------------------------
 init(no_arg) -> {ok, #state{}}.
 
 %%--------------------------------------------------------------------
 %% @private
 %%--------------------------------------------------------------------
--spec handle_req(allocate | {deallocate, integer()}, #state{}) -> {ok,#state{}}.
+-spec handle_req(allocate | {deallocate, integer()}, #state{}) ->
+          jhn_server:return(#state{}).
 %%--------------------------------------------------------------------
 handle_req(allocate, State = #state{free = []}) ->
     jhn_server:reply({error, no_frequencies}),
@@ -141,6 +142,6 @@ terminate(_Reason, _State) -> ok.
 %%--------------------------------------------------------------------
 %% @private
 %%--------------------------------------------------------------------
--spec code_change(_, #state{}, _) -> {ok, #state{}}.
+-spec code_change(_, #state{}, _) -> jhn_server:return(#state{}).
 %%--------------------------------------------------------------------
 code_change(_OldVsn, State, _Extra) -> {ok, State}.

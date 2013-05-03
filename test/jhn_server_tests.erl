@@ -557,8 +557,8 @@ run_coverage(format_status) ->
     TheState2 = {state, the_parent, self(), a_jhn_server, State, false},
     jhn_server:format_status(fail, [PDict, sysState, parent, debug, TheState2]);
 run_coverage(behaviour_info) ->
-    jhn_server:behaviour_info(callbacks),
-    jhn_server:behaviour_info(parse_transform).
+    jhn_server:behaviour_info(callbacks).
+
 
 
 %% ===================================================================
