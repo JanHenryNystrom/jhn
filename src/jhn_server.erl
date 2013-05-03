@@ -85,10 +85,8 @@
 
 -opaque from() :: #from{}.
 
-
 -type init_return(State) :: ignore | return(State).
 -type return(State) :: {ok, State} | {hibernate, State} | {stop, State}.
-
 
 %% Exported Types
 -export_type([from/0, init_return/1, return/1]).

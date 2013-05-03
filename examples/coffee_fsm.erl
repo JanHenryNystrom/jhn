@@ -139,7 +139,7 @@ remove_cup() -> jhn_fsm:event(?MODULE, remove_cup).
 %%--------------------------------------------------------------------
 %% @private
 %%--------------------------------------------------------------------
--spec init(no_arg) -> {ok, atom(), #state{}}.
+-spec init(no_arg) -> jhn_fsm:init_return(#state{}).
 %%--------------------------------------------------------------------
 init(no_arg) ->
     hw_reboot(),
@@ -153,7 +153,7 @@ init(no_arg) ->
 %%--------------------------------------------------------------------
 %% @private
 %%--------------------------------------------------------------------
--spec selection(_, #state{}) -> {ok, #state{}}.
+-spec selection(_, #state{}) -> jhn_fsm:return(#state{}).
 %%--------------------------------------------------------------------
 selection({selection, Type, Cost}, State) ->
     hw_display("Please pay:~p", [Cost]),
@@ -169,7 +169,7 @@ selection(remove_cup, State) ->
 %%--------------------------------------------------------------------
 %% @private
 %%--------------------------------------------------------------------
--spec payment(_, #state{}) -> {ok, #state{}}.
+-spec payment(_, #state{}) -> jhn_fsm:return(#state{}).
 %%--------------------------------------------------------------------
 payment({pay, Ammount}, State = #state{cost = Cost, total = Total})
   when Total + Ammount >= Cost ->
@@ -193,7 +193,7 @@ payment({selection, _, _}, State) ->
 %%--------------------------------------------------------------------
 %% @private
 %%--------------------------------------------------------------------
--spec remove(_, #state{}) -> {ok, #state{}}.
+-spec remove(_, #state{}) -> jhn_fsm:return(#state{}).
 %%--------------------------------------------------------------------
 remove(remove_cup, State) ->
     hw_display("Make your selection.", []),
@@ -209,7 +209,7 @@ remove(cancel, State) ->
 %%--------------------------------------------------------------------
 %% @private
 %%--------------------------------------------------------------------
--spec handle_event(stop, atom(), #state{}) -> {stop, normal}.
+-spec handle_event(stop, atom(), #state{}) -> jhn_fsm:return(#state{}).
 %%--------------------------------------------------------------------
 handle_event(stop, _StateName, _State) ->
     jhn_fsm:reply(ok),
@@ -229,7 +229,7 @@ terminate(_, _, _) ->
 %%--------------------------------------------------------------------
 %% @private
 %%--------------------------------------------------------------------
--spec code_change(_, atom(), #state{}, _) -> {ok, atom(), #state{}}.
+-spec code_change(_, atom(), #state{}, _) -> jhn_fsm:return(#state{}).
 %%--------------------------------------------------------------------
 code_change(_OldVsn, StateName, State, _Extras) ->
     {ok, StateName, State}.

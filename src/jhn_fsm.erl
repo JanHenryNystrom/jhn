@@ -38,9 +38,6 @@
          system_code_change/4,
          format_status/2]).
 
-%% Behaviour callbacks
--export([behaviour_info/1]).
-
 %% Internal exports
 -export([init/5,
          loop/1, next_loop/2
@@ -89,8 +86,24 @@
 -type fsm_ref() :: atom() | {atom(), node()} | pid().
 -opaque from() :: #from{}.
 
+-type init_return(State) :: ignore | return(State).
+-type return(State) :: {ok, atom(), State} |
+                       {hibernate, atom(), State} |
+                       {stop, atom()}.
+
 %% Exported Types
--export_type([from/0]).
+-export_type([from/0, init_return/1, return/1]).
+
+%%====================================================================
+%% Behaviour callbacks
+%%====================================================================
+
+-callback init(State) -> init_return(State).
+
+-callback handle_event(_, atom(), State) -> return(State).
+-callback handle_msg(_, atom(), State) -> return(State).
+-callback terminate(_, atom(), _) -> _.
+-callback code_change(_, atom(), State, _) ->  return(State).
 
 %%====================================================================
 %% API
@@ -308,26 +321,6 @@ format_status(Opt, StatusData) ->
              {"Parent", Parent},
              {"StateName", StateName}]} |
      Specfic].
-
-%%====================================================================
-%% Behaviour callbacks
-%%====================================================================
-
-%%--------------------------------------------------------------------
-%% Function: behaviour_info(callbacks) -> Callbacks.
-%% @private
-%%--------------------------------------------------------------------
--spec behaviour_info(atom()) -> undefined | [{atom(), arity()}].
-%%--------------------------------------------------------------------
-behaviour_info(callbacks) ->
-    [{init, 1},
-     {handle_event, 3},
-     {handle_msg, 3},
-     {terminate, 3},
-     {code_change, 4}
-    ];
-behaviour_info(_) ->
-    undefined.
 
 %%====================================================================
 %% Internal exports
