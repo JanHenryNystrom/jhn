@@ -28,7 +28,7 @@
 %% API
 -export([start/1, start/2,
          call/2, call/3,
-         event/2,
+         event/2, delayed_event/2, cancel/1,
          reply/1, reply/2, from/0
         ]).
 
@@ -37,9 +37,6 @@
          system_terminate/4,
          system_code_change/4,
          format_status/2]).
-
-%% Behaviour callbacks
--export([behaviour_info/1]).
 
 %% Internal exports
 -export([init/5,
@@ -89,8 +86,24 @@
 -type fsm_ref() :: atom() | {atom(), node()} | pid().
 -opaque from() :: #from{}.
 
+-type init_return(State) :: ignore | return(State).
+-type return(State) :: {ok, atom(), State} |
+                       {hibernate, atom(), State} |
+                       {stop, atom()}.
+
 %% Exported Types
--export_type([from/0]).
+-export_type([from/0, init_return/1, return/1]).
+
+%%====================================================================
+%% Behaviour callbacks
+%%====================================================================
+
+-callback init(State) -> init_return(State).
+
+-callback handle_event(_, atom(), State) -> return(State).
+-callback handle_msg(_, atom(), State) -> return(State).
+-callback terminate(_, atom(), _) -> _.
+-callback code_change(_, atom(), State, _) ->  return(State).
 
 %%====================================================================
 %% API
@@ -111,10 +124,10 @@ start(Mod) -> start(Mod, []).
 %% @doc
 %%   Starts a jhn_fsm with options.
 %%   Options are:
-%%     {link, Boolean} -> if the server is linked to the parent, default true
-%%     {timeout, infinity | Integer} -> Time in ms for the server to start and
+%%     {link, Boolean} -> if the fsm is linked to the parent, default true
+%%     {timeout, infinity | Integer} -> Time in ms for the fsm to start and
 %%         initialise, after that an exception is generated, default 5000.
-%%     {name, Atom} -> name that the server is registered under.
+%%     {name, Atom} -> name that the fsm is registered under.
 %%     {arg, Term} -> argument provided to the init/1 callback function,
 %%         default is 'no_arg'.
 %% @end
@@ -137,7 +150,7 @@ start(Mod, Options) ->
 %%--------------------------------------------------------------------
 %% Function: event(FSM, Message) -> ok.
 %% @doc
-%%   A event is made to the FSM, allways retuns ok.
+%%   An event is sent to the FSM, always retuns ok.
 %% @end
 %%--------------------------------------------------------------------
 -spec event(fsm_ref(), _) -> ok.
@@ -148,6 +161,31 @@ event(FSM = {Name, Node}, Msg) when is_atom(Name), is_atom(Node) ->
     do_event(FSM, Msg);
 event(FSM, Msg) ->
     erlang:error(badarg, [FSM, Msg]).
+
+%%--------------------------------------------------------------------
+%% Function: delayed_event(Delay, Message) -> TimerRef.
+%% @doc
+%%   An event is sent to the calling FSM after Delay ms, always returns
+%%   a timer reference that can be canceled using cancel/1.
+%% @end
+%%--------------------------------------------------------------------
+-spec delayed_event(non_neg_integer(), _) -> reference().
+%%--------------------------------------------------------------------
+delayed_event(Time, Msg) when is_integer(Time), Time >= 0 ->
+    erlang:send_after(Time, self(), ?EVENT(Msg));
+delayed_event(Time, Msg) ->
+    erlang:error(badarg, [Time, Msg]).
+
+%%--------------------------------------------------------------------
+%% Function: cancel(TimerRef) -> Time | false.
+%% @doc
+%%   A timer a timer started using delayed_event/2, returns time
+%%   remaining or false.
+%% @end
+%%--------------------------------------------------------------------
+-spec cancel(reference()) -> non_neg_integer() | false.
+%%--------------------------------------------------------------------
+cancel(Ref) -> erlang:cancel_timer(Ref).
 
 %%--------------------------------------------------------------------
 %% Function: call(FSM, Message) -> Term.
@@ -308,26 +346,6 @@ format_status(Opt, StatusData) ->
              {"Parent", Parent},
              {"StateName", StateName}]} |
      Specfic].
-
-%%====================================================================
-%% Behaviour callbacks
-%%====================================================================
-
-%%--------------------------------------------------------------------
-%% Function: behaviour_info(callbacks) -> Callbacks.
-%% @private
-%%--------------------------------------------------------------------
--spec behaviour_info(atom()) -> undefined | [{atom(), arity()}].
-%%--------------------------------------------------------------------
-behaviour_info(callbacks) ->
-    [{init, 1},
-     {handle_event, 3},
-     {handle_msg, 3},
-     {terminate, 3},
-     {code_change, 4}
-    ];
-behaviour_info(_) ->
-    undefined.
 
 %%====================================================================
 %% Internal exports

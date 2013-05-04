@@ -28,7 +28,7 @@
 %% API
 -export([start/1, start/2,
          call/2, call/3,
-         cast/2, abcast/2, abcast/3,
+         cast/2, delayed_cast/2, cancel/1, abcast/2, abcast/3,
          reply/1, reply/2, from/0
         ]).
 
@@ -37,9 +37,6 @@
          system_terminate/4,
          system_code_change/4,
          format_status/2]).
-
-%% Behaviour callbacks
--export([behaviour_info/1]).
 
 %% Internal exports
 -export([init/5, loop/1]).
@@ -83,11 +80,27 @@
 %% Types
 -type opt() :: {atom(), _}.
 -type opts() :: [opt()].
+
 -type server_ref() :: atom() | {atom(), node()} | pid().
+
 -opaque from() :: #from{}.
 
+-type init_return(State) :: ignore | return(State).
+-type return(State) :: {ok, State} | {hibernate, State} | {stop, State}.
+
 %% Exported Types
--export_type([from/0]).
+-export_type([from/0, init_return/1, return/1]).
+
+%%====================================================================
+%% Behaviour callbacks
+%%====================================================================
+
+-callback init(State) -> init_return(State).
+
+-callback handle_req(_, State) -> return(State).
+-callback handle_msg(_, State) -> return(State).
+-callback terminate(_, _) -> _.
+-callback code_change(_, State, _) ->  return(State).
 
 %%====================================================================
 %% API
@@ -134,7 +147,7 @@ start(Mod, Options) ->
 %%--------------------------------------------------------------------
 %% Function: cast(Server, Message) -> ok.
 %% @doc
-%%   A cast is made to the server, allways retuns ok.
+%%   A cast is made to the server, allways returns ok.
 %% @end
 %%--------------------------------------------------------------------
 -spec cast(server_ref(), _) -> ok.
@@ -145,6 +158,31 @@ cast(Server = {Name, Node}, Msg) when is_atom(Name), is_atom(Node) ->
     do_cast(Server, Msg);
 cast(Server, Msg) ->
     erlang:error(badarg, [Server, Msg]).
+
+%%--------------------------------------------------------------------
+%% Function: delayed_cast(Delay, Message) -> TimerRef.
+%% @doc
+%%   A cast is made to the calling Server after Delay ms, always returns
+%%   a timer reference that can be canceled using cancel/1.
+%% @end
+%%--------------------------------------------------------------------
+-spec delayed_cast(non_neg_integer(), _) -> reference().
+%%--------------------------------------------------------------------
+delayed_cast(Time, Msg) when is_integer(Time), Time >= 0 ->
+    erlang:send_after(Time, self(), ?CAST(Msg));
+delayed_cast(Time, Msg) ->
+    erlang:error(badarg, [Time, Msg]).
+
+%%--------------------------------------------------------------------
+%% Function: cancel(TimerRef) -> Time | false.
+%% @doc
+%%   A timer a timer started using delayed_cast/2, returns time
+%%   remaining or false.
+%% @end
+%%--------------------------------------------------------------------
+-spec cancel(reference()) -> non_neg_integer() | false.
+%%--------------------------------------------------------------------
+cancel(Ref) -> erlang:cancel_timer(Ref).
 
 %%--------------------------------------------------------------------
 %% Function: abcast(Server, Message) -> ok.
@@ -329,26 +367,6 @@ format_status(Opt, StatusData) ->
         end,
     [{header, Header},
      {data, [{"Status", SysState}, {"Parent", Parent}]} | Specfic].
-
-%%====================================================================
-%% Behaviour callbacks
-%%====================================================================
-
-%%--------------------------------------------------------------------
-%% Function: behaviour_info(callbacks) -> Callbacks.
-%% @private
-%%--------------------------------------------------------------------
--spec behaviour_info(atom()) -> undefined | [{atom(), arity()}].
-%%--------------------------------------------------------------------
-behaviour_info(callbacks) ->
-    [{init, 1},
-     {handle_req, 2},
-     {handle_msg, 2},
-     {terminate, 2},
-     {code_change, 3}
-    ];
-behaviour_info(_) ->
-    undefined.
 
 %%====================================================================
 %% Internal exports

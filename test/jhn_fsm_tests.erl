@@ -569,8 +569,7 @@ run_coverage(format_status) ->
          false},
     jhn_fsm:format_status(fail, [PDict, sysState, parent, debug, TheState2]);
 run_coverage(behaviour_info) ->
-    jhn_fsm:behaviour_info(callbacks),
-    jhn_fsm:behaviour_info(parse_transform).
+    jhn_fsm:behaviour_info(callbacks).
 
 %%%-------------------------------------------------------------------
 % States
