@@ -358,10 +358,8 @@ format_status(Opt, StatusData) ->
     Specfic =
         case erlang:function_exported(Mod, format_status, 2) of
             true ->
-                case catch Mod:format_status(Opt, [PDict, Data]) of
-                    {'EXIT', _} -> [{data, [{"State", Data}]}];
-                    Else -> Else
-                end;
+                try Mod:format_status(Opt, [PDict, Data])
+                catch _:_ -> [{data, [{"State", Data}]}] end;
             _ ->
                 [{data, [{"State", State}]}]
         end,
@@ -383,7 +381,7 @@ init(Mod, Arg, Opts, Parent, Ref) ->
     State = #state{parent = Parent, mod = Mod},
     case name(Opts, State) of
         {ok, State1} ->
-            case catch Mod:init(Arg) of
+            try Mod:init(Arg) of
                 {ok, Data} ->
                     Parent ! {ack, Ref},
                     next_loop(State1#state{data = Data});
@@ -394,10 +392,13 @@ init(Mod, Arg, Opts, Parent, Ref) ->
                     Parent ! {ignore, Ref};
                 {stop, Reason} ->
                     Parent ! {nack, Ref, Reason};
-                Reason = {'EXIT', _} ->
-                    Parent ! {nack, Ref, Reason};
                 Other ->
                     Parent ! {nack, Ref, {bad_return_value, Other}}
+            catch
+                throw:Reason ->
+                    Parent ! {nack, Ref, Reason};
+                _:Reason ->
+                    Parent ! {nack, Ref,{'EXIT',Reason,erlang:get_stacktrace()}}
             end;
         {error, Error} ->
             Parent ! {nack, Ref, Error}

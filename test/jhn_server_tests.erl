@@ -243,7 +243,7 @@ run_startstop(badreturninit) ->
     ?assertEqual(false, lists:member(testServer, registered()));
 run_startstop(exitinit) ->
     Result = a_jhn_server:start_link(testServer, exitinit, tester, node()),
-    ?assertEqual({error, {'EXIT', exitinit}}, Result),
+    ?assertMatch({error, {'EXIT', exitinit, _}}, Result),
     ?assertEqual(false, lists:member(testServer, registered()));
 run_startstop(dieinit) ->
     Result = a_jhn_server:start(testServer, dieinit, tester, node(), []),
