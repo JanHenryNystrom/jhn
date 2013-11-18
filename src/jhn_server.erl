@@ -499,15 +499,15 @@ opts([H | T], Opts = #opts{errors = Errors}) ->
 name(#opts{name = undefined}, State) ->
     {ok, State#state{name = self()}};
 name(#opts{name = Name}, State) ->
-    case catch register(Name, self()) of
-        true -> {ok, State#state{name = Name}};
-        _ -> {error, {already_started, Name, whereis(Name)}}
+    try register(Name, self()) of
+        true -> {ok, State#state{name = Name}}
+    catch _:_ -> {error, {already_started, Name, whereis(Name)}}
     end.
 
 %%--------------------------------------------------------------------
 terminate(Reason, Msg, State = #state{mod = Mod, data = Data}) ->
-    case catch {ok, Mod:terminate(Reason, Data)} of
-        {ok, _} ->
+    try Mod:terminate(Reason, Data) of
+        _ ->
             case Reason of
                 normal -> exit(normal);
                 shutdown -> exit(shutdown);
@@ -515,13 +515,11 @@ terminate(Reason, Msg, State = #state{mod = Mod, data = Data}) ->
                 _ ->
                     error_info(Reason, Msg, State),
                     exit(Reason)
-            end;
-        {'EXIT', Reason1} ->
+            end
+    catch
+        _:Reason1 ->
             error_info(Reason1, Msg, State),
-            exit(Reason1);
-        Reason2 ->
-            error_info(Reason2, Msg, State),
-            exit(Reason2)
+            exit(Reason1)
     end.
 
 error_info(Reason, [], #state{data = Data, name = Name}) ->
@@ -538,10 +536,12 @@ error_info(Reason, Msg, #state{data = Data, name = Name}) ->
 
 %%--------------------------------------------------------------------
 do_cast(Server, Msg) ->
-    case catch erlang:send(Server, ?CAST(Msg), [noconnect]) of
+    try erlang:send(Server, ?CAST(Msg), [noconnect]) of
         %% Wait for autoconnect in separate process.
         noconnect -> spawn(erlang, send, [Server, ?CAST(Msg)]);
         _ -> ok
+    catch
+        _:_ -> ok
     end.
 
 %%--------------------------------------------------------------------
@@ -551,19 +551,24 @@ do_call(Server, Msg, Timeout) ->
                Name when is_atom(Name) -> node();
                _ when is_pid(Server) -> node(Server)
            end,
-    case catch erlang:monitor(process, Server) of
+    try erlang:monitor(process, Server) of
         MRef when is_reference(MRef) ->
             % The monitor will do any autoconnect.
-            case catch erlang:send(Server, ?CALL(MRef, Msg), [noconnect]) of
-                ok -> wait_call(Node, MRef, Timeout);
+            try erlang:send(Server, ?CALL(MRef, Msg), [noconnect]) of
+                ok ->
+                    wait_call(Node, MRef, Timeout);
                 noconnect ->
                     erlang:demonitor(MRef, [flush]),
                     exit({nodedown, Node});
                 _ ->
                     exit(noproc)
+            catch _:_ ->
+                    exit(noproc)
             end;
         _ ->
             exit(internal_error)
+    catch
+        _:_ -> exit(internal_error)
     end.
 
 %%--------------------------------------------------------------------
