@@ -1,5 +1,5 @@
 %%==============================================================================
-%% Copyright 2013-2015 Jan Henry Nystrom <JanHenryNystrom@gmail.com>
+%% Copyright 2013 Jan Henry Nystrom <JanHenryNystrom@gmail.com>
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@
 %%% @end
 %%%
 %% @author Jan Henry Nystrom <JanHenryNystrom@gmail.com>
-%% @copyright (C) 2013-2015, Jan Henry Nystrom <JanHenryNystrom@gmail.com>
+%% @copyright (C) 2013, Jan Henry Nystrom <JanHenryNystrom@gmail.com>
 %%%-------------------------------------------------------------------
 -module(a_jhn_server).
 -copyright('Jan Henry Nystrom <JanHenryNystrom@gmail.com>').
@@ -33,6 +33,7 @@
 
 %% API
 -export([call/2, call/3,
+         sync/1, sync/2,
          cast/2, abcast/2, abcast/3
         ]).
 
@@ -86,6 +87,10 @@ start(Name, Type, TestName, TestNode, Opts) ->
 call(Server, Msg) -> jhn_server:call(Server, Msg).
 
 call(Server, Msg, Timeout) -> jhn_server:call(Server, Msg, Timeout).
+
+sync(Server) -> jhn_server:sync(Server).
+
+sync(Server, Timeout) -> jhn_server:sync(Server, Timeout).
 
 cast(Server, Msg) -> jhn_server:cast(Server, Msg).
 

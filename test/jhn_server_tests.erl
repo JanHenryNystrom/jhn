@@ -1,5 +1,5 @@
 %%==============================================================================
-%% Copyright 2013-2015 Jan Henry Nystrom <JanHenryNystrom@gmail.com>
+%% Copyright 2013-2016 Jan Henry Nystrom <JanHenryNystrom@gmail.com>
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -20,13 +20,17 @@
 %%% @end
 %%%
 %% @author Jan Henry Nystrom <JanHenryNystrom@gmail.com>
-%% @copyright (C) 2013-2015, Jan Henry Nystrom <JanHenryNystrom@gmail.com>
+%% @copyright (C) 2013-2016, Jan Henry Nystrom <JanHenryNystrom@gmail.com>
 %%%-------------------------------------------------------------------
 -module(jhn_server_tests).
 -copyright('Jan Henry Nystrom <JanHenryNystrom@gmail.com>').
 
 %% Includes
 -include_lib("eunit/include/eunit.hrl").
+
+%% Defines
+-record(state, {parent, name, mod, data, hibernated,
+                handle_msg, terminate, code_change, format_status}).
 
 %% ===================================================================
 %% Tests.
@@ -41,6 +45,7 @@ simple_test_() ->
      fun cleanup_simple/1,
      {inorder, [{timeout, 120, {"Start", ?_test(run_simple(started))}},
                 {timeout, 120, {"Call", ?_test(run_simple(call))}},
+                {timeout, 120, {"Sync", ?_test(run_simple(sync))}},
                 {timeout, 120, {"Cast", ?_test(run_simple(cast))}},
                 {timeout, 120, {"ABCast", ?_test(run_simple(abcast))}},
                 {timeout, 120, {"Info", ?_test(run_simple(info))}},
@@ -79,6 +84,17 @@ run_simple(call) ->
     ?assertError(badarg, a_jhn_server:call(testServer, {reply, aa}, error)),
     ?assertError(badarg, a_jhn_server:call(testServer, {reply, aa}, -1)),
     ?assertError(badarg, a_jhn_server:call(testServer, {reply, aa}, 0));
+run_simple(sync) ->
+    Pid = whereis(testServer),
+    ?assertEqual(ok, a_jhn_server:sync(testServer)),
+    ?assertEqual(ok, a_jhn_server:sync(Pid)),
+    ?assertEqual(ok, a_jhn_server:sync({testServer, node()})),
+    ?assertError(badarg, a_jhn_server:sync(1)),
+    ?assertError(badarg, a_jhn_server:sync({testServer, 1})),
+    ?assertError(badarg, a_jhn_server:sync({1, node()})),
+    ?assertError(badarg, a_jhn_server:sync(testServer, error)),
+    ?assertError(badarg, a_jhn_server:sync(testServer, -1)),
+    ?assertError(badarg, a_jhn_server:sync(testServer, 0));
 run_simple(cast) ->
     Pid = whereis(testServer),
     ?assertEqual(ok, a_jhn_server:cast(testServer, {reply, aa})),
@@ -161,9 +177,11 @@ startstop_test_() ->
      fun cleanup_startstop/1,
      {inorder, [{timeout, 120, {"Hibernate", ?_test(run_startstop(hibernate))}},
                 {timeout, 120, {"Call", ?_test(run_simple(call))}},
+                {timeout, 120, {"Sync", ?_test(run_simple(sync))}},
                 {timeout, 120, {"Stop(Normal)", ?_test(run_simple(stop))}},
                 {timeout, 120, {"Unlinked", ?_test(run_startstop(unlinked))}},
                 {timeout, 120, {"Call", ?_test(run_simple(call))}},
+                {timeout, 120, {"Sync", ?_test(run_simple(sync))}},
                 {timeout, 120, {"Stop(Normal)", ?_test(run_simple(stop))}},
                 {timeout, 120, {"Ignore", ?_test(run_startstop(ignore))}},
                 {timeout, 120, {"Stop(Init)", ?_test(run_startstop(stop))}},
@@ -550,11 +568,29 @@ run_coverage(format_status) ->
     ?assertEqual(true, lists:member(Pid, Links)),
     PDict = process_info(Pid, dictionary),
     {state, State} = a_jhn_server:call(Pid, get_state),
-    TheState = {state, the_parent, the_name, a_jhn_server, State, false},
+    TheState =
+        #state{parent = the_parent, name = the_name, mod = a_jhn_server,
+               data = State, hibernated = false,
+               handle_msg = true,
+               terminate = true,
+               code_change = true,
+               format_status = true},
     jhn_server:format_status(none, [PDict, sysState, parent, debug, TheState]),
-    TheState1 = {state, the_parent, self(), will_not_exist, State, false},
+    TheState1 =
+        #state{parent = the_parent, name = self(), mod = will_not_exist,
+               data = State, hibernated = false,
+               handle_msg = true,
+               terminate = true,
+               code_change = true,
+               format_status = true},
     jhn_server:format_status(none, [PDict, sysState, parent, debug, TheState1]),
-    TheState2 = {state, the_parent, self(), a_jhn_server, State, false},
+    TheState2 =
+        #state{parent = the_parent, name = self(), mod = a_jhn_server,
+               data = State, hibernated = false,
+               handle_msg = true,
+               terminate = true,
+               code_change = true,
+               format_status = true},
     jhn_server:format_status(fail, [PDict, sysState, parent, debug, TheState2]);
 run_coverage(behaviour_info) ->
     jhn_server:behaviour_info(callbacks).

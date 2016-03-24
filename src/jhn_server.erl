@@ -1,5 +1,5 @@
 %%==============================================================================
-%% Copyright 2013-2015 Jan Henry Nystrom <JanHenryNystrom@gmail.com>
+%% Copyright 2013-2016 Jan Henry Nystrom <JanHenryNystrom@gmail.com>
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@
 %%% @end
 %%%
 %% @author Jan Henry Nystrom <JanHenryNystrom@gmail.com>
-%% @copyright (C) 2013-2015, Jan Henry Nystrom <JanHenryNystrom@gmail.com>
+%% @copyright (C) 2013-2016, Jan Henry Nystrom <JanHenryNystrom@gmail.com>
 %%%-------------------------------------------------------------------
 -module(jhn_server).
 -copyright('Jan Henry Nystrom <JanHenryNystrom@gmail.com>').
@@ -28,6 +28,7 @@
 %% API
 -export([start/1, start/2,
          call/2, call/3,
+         sync/1, sync/2,
          cast/2, delayed_cast/2, cancel/1, abcast/2, abcast/3,
          reply/1, reply/2, from/0
         ]).
@@ -43,23 +44,28 @@
 
 
 %% Records
--record(opts, {arg = no_arg :: no_arg,
-               link = true :: boolean(),
+-record(opts, {arg     = no_arg   :: no_arg,
+               link    = true     :: boolean(),
                timeout = infinity :: timeout(),
-               name :: atom(),
-               errors = [] :: [_]
+               name               :: atom(),
+               errors  = []       :: [_]
               }).
 
--record(state, {parent :: pid(),
-                name :: pid() | atom(),
-                mod :: atom(),
+-record(state, {parent             :: pid(),
+                name               :: pid() | atom(),
+                mod                :: atom(),
                 data,
-                hibernated = false :: boolean()
+                hibernated = false :: boolean(),
+                %% Optional callbacks
+                handle_msg         :: boolean(),
+                terminate          :: boolean(),
+                code_change        :: boolean,
+                format_status      :: boolean()
                }).
 
 -record(from, {sender = self() :: pid(),
-               type = cast :: cast | call,
-               ref :: reference()
+               type   = cast   :: cast | call | sync,
+               ref             :: reference()
               }).
 
 -record('$jhn_server_msg', {from :: from(), payload}).
@@ -72,13 +78,15 @@
 -define(CALL(MRef, Msg),
         #'$jhn_server_msg'{from = #from{type = call, ref = MRef},
                            payload = Msg}).
+-define(SYNC(MRef),
+        #'$jhn_server_msg'{from = #from{type = sync, ref = MRef}}).
 -define(REPLY(From, Msg), #'$jhn_server_reply'{from = From, payload = Msg}).
 
 %% Defines
 -define(DEFAULT_TIMEOUT, 5000).
 
 %% Types
--type opt() :: {atom(), _}.
+-type opt()  :: {atom(), _}.
 -type opts() :: [opt()].
 
 -type server_ref() :: atom() | {atom(), node()} | pid().
@@ -86,7 +94,7 @@
 -opaque from() :: #from{}.
 
 -type init_return(State) :: ignore | return(State).
--type return(State) :: {ok, State} | {hibernate, State} | {stop, State}.
+-type return(State)      :: {ok, State} | {hibernate, State} | {stop, State}.
 
 %% Exported Types
 -export_type([from/0, init_return/1, return/1]).
@@ -101,6 +109,10 @@
 -callback handle_msg(_, State) -> return(State).
 -callback terminate(_, _) -> _.
 -callback code_change(_, State, _) ->  return(State).
+-callback format_status(_, _) -> _.
+
+-optional_callbacks([handle_msg/2, terminate/2, code_change/3,
+                     format_status/2]).
 
 %%====================================================================
 %% API
@@ -140,8 +152,7 @@ start(Mod, Options) ->
             wait_ack(Pid, Ref, Opts, undefined);
         Opts = #opts{arg = Arg} ->
             Pid = spawn(?MODULE, init, [Mod, Arg, Opts, self(), Ref]),
-            MRef = erlang:monitor(process, Pid),
-            wait_ack(Pid, Ref, Opts, MRef)
+            wait_ack(Pid, Ref, Opts, erlang:monitor(process, Pid))
     end.
 
 %%--------------------------------------------------------------------
@@ -241,21 +252,56 @@ call(Server, Msg, Timeout)
   when is_pid(Server), Timeout == infinity;
        is_pid(Server), is_integer(Timeout), Timeout > 0;
        is_atom(Server), Timeout == infinity;
-       is_atom(Server), is_integer(Timeout), Timeout > 0
-       ->
+       is_atom(Server), is_integer(Timeout), Timeout > 0 ->
     do_call(Server, Msg, Timeout);
 call({Name, Node}, Msg, Timeout)
   when is_atom(Name), Node == node(), Timeout == infinity;
-       is_atom(Name), Node == node(), is_integer(Timeout), Timeout > 0
-       ->
+       is_atom(Name), Node == node(), is_integer(Timeout), Timeout > 0 ->
     do_call(Name, Msg, Timeout);
 call(Server = {Name, Node}, Msg, Timeout)
   when is_atom(Name), is_atom(Node), Timeout == infinity;
-       is_atom(Name), is_atom(Node), is_integer(Timeout), Timeout > 0
-       ->
+       is_atom(Name), is_atom(Node), is_integer(Timeout), Timeout > 0 ->
     do_call(Server, Msg, Timeout);
 call(Server, Msg, Timeout) ->
     erlang:error(badarg, [Server, Msg, Timeout]).
+
+%%--------------------------------------------------------------------
+%% Function: sync(Server) -> ok.
+%% @doc
+%%   A sync is made to Server with default timeout 5000ms.
+%% @end
+%%--------------------------------------------------------------------
+-spec sync(server_ref()) -> ok.
+%%--------------------------------------------------------------------
+sync(Server) -> sync(Server, ?DEFAULT_TIMEOUT).
+
+%%--------------------------------------------------------------------
+%% Function: sync(Server, Timeout) -> ok.
+%% @doc
+%%   A sync is made to Server with Timeout. Will generate a timeout
+%%   exception if the Server takes more than Timeout time to answer.
+%%   Generates an exception if the process is dead, dies, or no process
+%%   registered under that name. If the server returns, ok is returned.
+%% @end
+%%--------------------------------------------------------------------
+-spec sync(server_ref(), timeout()) -> _.
+%%--------------------------------------------------------------------
+sync(Server, Timeout)
+  when is_pid(Server), Timeout == infinity;
+       is_pid(Server), is_integer(Timeout), Timeout > 0;
+       is_atom(Server), Timeout == infinity;
+       is_atom(Server), is_integer(Timeout), Timeout > 0 ->
+    do_sync(Server, Timeout);
+sync({Name, Node}, Timeout)
+  when is_atom(Name), Node == node(), Timeout == infinity;
+       is_atom(Name), Node == node(), is_integer(Timeout), Timeout > 0 ->
+    do_sync(Name, Timeout);
+sync(Server = {Name, Node}, Timeout)
+  when is_atom(Name), is_atom(Node), Timeout == infinity;
+       is_atom(Name), is_atom(Node), is_integer(Timeout), Timeout > 0 ->
+    do_sync(Server, Timeout);
+sync(Server, Timeout) ->
+    erlang:error(badarg, [Server, Timeout]).
 
 %%--------------------------------------------------------------------
 %% Function: reply(Message) -> ok.
@@ -334,6 +380,7 @@ system_terminate(Reason, _, _, State) -> terminate(Reason, [], State).
 %%--------------------------------------------------------------------
 -spec system_code_change(#state{}, _, _, _) -> none().
 %%--------------------------------------------------------------------
+system_code_change(State = #state{code_change = false}, _, _, _) -> {ok, State};
 system_code_change(State = #state{data = Data, mod = Mod}, _, OldVsn, Extra) ->
     case catch Mod:code_change(OldVsn, Data, Extra) of
         {ok, NewData} -> {ok, State#state{data = NewData}};
@@ -346,23 +393,24 @@ system_code_change(State = #state{data = Data, mod = Mod}, _, OldVsn, Extra) ->
 %%--------------------------------------------------------------------
 -spec format_status(_, _) -> [{atom(), _}].
 %%--------------------------------------------------------------------
-format_status(Opt, StatusData) ->
-    [PDict, SysState, Parent, _Debug, State] = StatusData,
-    #state{mod = Mod, data = Data} = State,
-    NameTag =
-        case State#state.name of
-            Name when is_pid(Name) -> pid_to_list(Name);
-            Name when is_atom(Name) -> Name
-        end,
+format_status(_, [_, SysState, Parent, _, State=#state{format_status=false}]) ->
+    NameTag = case State#state.name of
+                  Name when is_pid(Name) -> pid_to_list(Name);
+                  Name when is_atom(Name) -> Name
+              end,
     Header = lists:concat(["Status for jhn server ", NameTag]),
-    Specfic =
-        case erlang:function_exported(Mod, format_status, 2) of
-            true ->
-                try Mod:format_status(Opt, [PDict, Data])
-                catch _:_ -> [{data, [{"State", Data}]}] end;
-            _ ->
-                [{data, [{"State", State}]}]
-        end,
+    Specfic = [{data, [{"State", State}]}],
+    [{header, Header},
+     {data, [{"Status", SysState}, {"Parent", Parent}]} | Specfic];
+format_status(Opt, [PDict, SysState, Parent, _, State]) ->
+    #state{mod = Mod, data = Data} = State,
+    NameTag = case State#state.name of
+                  Name when is_pid(Name) -> pid_to_list(Name);
+                  Name when is_atom(Name) -> Name
+              end,
+    Header = lists:concat(["Status for jhn server ", NameTag]),
+    Specfic = try Mod:format_status(Opt, [PDict, Data])
+              catch _:_ -> [{data, [{"State", Data}]}] end,
     [{header, Header},
      {data, [{"Status", SysState}, {"Parent", Parent}]} | Specfic].
 
@@ -378,7 +426,13 @@ format_status(Opt, StatusData) ->
 %%--------------------------------------------------------------------
 init(Mod, Arg, Opts, Parent, Ref) ->
     write(behaviour),
-    State = #state{parent = Parent, mod = Mod},
+    State =
+        #state{parent = Parent,
+               mod = Mod,
+               handle_msg = erlang:function_exported(Mod, handle_msg, 2),
+               terminate = erlang:function_exported(Mod, terminate, 2),
+               code_change = erlang:function_exported(Mod, code_change, 3),
+               format_status = erlang:function_exported(Mod, format_status, 2)},
     case name(Opts, State) of
         {ok, State1} ->
             try Mod:init(Arg) of
@@ -410,17 +464,23 @@ init(Mod, Arg, Opts, Parent, Ref) ->
 %%--------------------------------------------------------------------
 -spec loop(#state{}) -> none().
 %%--------------------------------------------------------------------
-loop(State = #state{parent = Parent, mod = Mod, data = Data}) ->
+loop(State = #state{parent = Parent, mod = Mod, data = Data, handle_msg=HM}) ->
     receive
         {system, From, Req} ->
             sys:handle_system_msg(Req, From, Parent, ?MODULE, [], State);
         Msg = {'EXIT', Parent, Reason} ->
             terminate(Reason, Msg, State);
+        #'$jhn_server_msg'{from = From = #from{type = sync, sender = Sender}} ->
+            Sender ! ?REPLY(From, ok),
+            next_loop(State);
         #'$jhn_server_msg'{from = From, payload = Msg} ->
             write(#msg_store{from = From, payload = Msg}),
             Return = (catch Mod:handle_req(Msg, Data)),
             write(clear),
             return(Return, handle_req, Mod, Msg, State);
+        Msg when not HM ->
+            unexpected(handle_msg, State, Msg),
+            next_loop(State);
         Msg ->
             return(catch Mod:handle_msg(Msg, Data), handle_msg, Mod, Msg, State)
     end.
@@ -435,12 +495,8 @@ return({stop, Reason}, _, _, Msg, State) ->
 return({'EXIT',{function_clause,[{Mod,Type,[_,_],_}|_]}},Type,Mod, Msg,State) ->
     unexpected(Type, State, Msg),
     next_loop(State);
-return({'EXIT', {undef, [{Mod, Type, [_, _], _} |_]}}, Type, Mod, Msg, State) ->
-    unexpected(Type, State, Msg),
-    next_loop(State);
 return(Other, _, _, Msg, State) ->
     terminate({bad_return_value, Other}, Msg, State).
-
 
 %%====================================================================
 %% Internal functions
@@ -496,22 +552,28 @@ opts([H | T], Opts = #opts{errors = Errors}) ->
     opts(T, Opts#opts{errors = [H | Errors]}).
 
 %%--------------------------------------------------------------------
-name(#opts{name = undefined}, State) ->
-    {ok, State#state{name = self()}};
+name(#opts{name = undefined}, State) -> {ok, State#state{name = self()}};
 name(#opts{name = Name}, State) ->
-    try register(Name, self()) of
-        true -> {ok, State#state{name = Name}}
-    catch _:_ -> {error, {already_started, Name, whereis(Name)}}
-    end.
+    try register(Name, self()) of true -> {ok, State#state{name = Name}}
+    catch _:_ -> {error, {already_started, Name, whereis(Name)}} end.
 
 %%--------------------------------------------------------------------
+terminate(Reason, Msg, State = #state{terminate = false}) ->
+    case Reason of
+        normal -> exit(normal);
+        shutdown -> exit(shutdown);
+        Shutdown = {shutdown, _} -> exit(Shutdown);
+        _ ->
+            error_info(Reason, Msg, State),
+            exit(Reason)
+    end;
 terminate(Reason, Msg, State = #state{mod = Mod, data = Data}) ->
     try Mod:terminate(Reason, Data) of
         _ ->
             case Reason of
                 normal -> exit(normal);
                 shutdown -> exit(shutdown);
-                {shutdown, _} = Shutdown -> exit(Shutdown);
+                Shutdown = {shutdown, _} -> exit(Shutdown);
                 _ ->
                     error_info(Reason, Msg, State),
                     exit(Reason)
@@ -555,8 +617,33 @@ do_call(Server, Msg, Timeout) ->
         MRef when is_reference(MRef) ->
             % The monitor will do any autoconnect.
             try erlang:send(Server, ?CALL(MRef, Msg), [noconnect]) of
-                ok ->
-                    wait_call(Node, MRef, Timeout);
+                ok -> wait_call(Node, MRef, Timeout);
+                noconnect ->
+                    erlang:demonitor(MRef, [flush]),
+                    exit({nodedown, Node});
+                _ ->
+                    exit(noproc)
+            catch _:_ ->
+                    exit(noproc)
+            end;
+        _ ->
+            exit(internal_error)
+    catch
+        _:_ -> exit(internal_error)
+    end.
+
+%%--------------------------------------------------------------------
+do_sync(Server, Timeout) ->
+    Node = case Server of
+               {_, Node0} when is_atom(Node0) -> Node0;
+               Name when is_atom(Name) -> node();
+               _ when is_pid(Server) -> node(Server)
+           end,
+    try erlang:monitor(process, Server) of
+        MRef when is_reference(MRef) ->
+            % The monitor will do any autoconnect.
+            try erlang:send(Server, ?SYNC(MRef), [noconnect]) of
+                ok -> wait_call(Node, MRef, Timeout);
                 noconnect ->
                     erlang:demonitor(MRef, [flush]),
                     exit({nodedown, Node});
